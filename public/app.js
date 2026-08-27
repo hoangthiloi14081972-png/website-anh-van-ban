@@ -7,24 +7,32 @@ function closeModal(){$("#modal").classList.add("hidden")}
 function openModal(html){$("#modalContent").innerHTML=html;$("#modal").classList.remove("hidden")}
 async function refresh(){
   const d=await api("/api/me");ME=d.user;
-  $("#auth").classList.toggle("hidden",!!ME);$("#app").classList.toggle("hidden",!ME);$("#admin").classList.toggle("hidden",!ME||ME.role!=="admin");
-  $("#nav").innerHTML=ME?`<span>👤 ${esc(ME.username)}</span><button class="secondary" onclick="logout()">Đăng xuất</button>`:"";
-  if(ME){loadPosts();if(ME.role==="admin")loadUsers()}
+  $("#auth").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+  $("#admin").classList.toggle("hidden",!ME||ME.role!=="admin");
+  $("#newPostBtn").textContent=ME?"+ Đăng bài":"🔐 Đăng nhập để đăng bài";
+  $("#nav").innerHTML=ME
+    ? `<span>👤 ${esc(ME.username)}</span><button class="secondary" onclick="logout()">Đăng xuất</button>`
+    : `<button onclick="showLogin()">Đăng nhập</button><button class="secondary" onclick="showRegister()">Đăng ký</button>`;
+  loadPosts();
+  if(ME&&ME&&ME.role==="admin")loadUsers();
 }
+function showLogin(){showAuth("login");$("#auth").classList.remove("hidden");$("#auth").scrollIntoView({behavior:"smooth"})}
+function showRegister(){showAuth("register");$("#auth").classList.remove("hidden");$("#auth").scrollIntoView({behavior:"smooth"})}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 $("#loginForm").onsubmit=async e=>{e.preventDefault();try{const f=new FormData(e.target);await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.fromEntries(f))});toast("Đăng nhập thành công");refresh()}catch(x){toast(x.message)}}
 $("#registerForm").onsubmit=async e=>{e.preventDefault();try{const f=new FormData(e.target);const d=await api("/api/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.fromEntries(f))});toast(d.message);e.target.reset();showAuth("login")}catch(x){toast(x.message)}}
 async function logout(){await api("/api/logout",{method:"POST"});refresh()}
-$("#newPostBtn").onclick=()=>openModal(`<h2>Đăng bài viết</h2><form id="postForm"><input name="title" placeholder="Tiêu đề" required><textarea name="content" placeholder="Nội dung..." required></textarea><label>Ảnh (tối đa 8MB)<input name="image" type="file" accept="image/*"></label><button>Đăng bài</button></form>`);
+$("#newPostBtn").onclick=()=>{if(!ME){showLogin();return}openModal(`<h2>Đăng bài viết</h2><form id="postForm"><input name="title" placeholder="Tiêu đề" required><textarea name="content" placeholder="Nội dung..." required></textarea><label>Ảnh (tối đa 8MB)<input name="image" type="file" accept="image/*"></label><button>Đăng bài</button></form>`)};
 document.addEventListener("submit",async e=>{if(e.target.id!=="postForm")return;e.preventDefault();try{await api("/api/posts",{method:"POST",body:new FormData(e.target)});closeModal();toast("Đã đăng bài");loadPosts()}catch(x){toast(x.message)}})
 async function loadPosts(){
  const posts=await api("/api/posts");const box=$("#posts");
  if(!posts.length){box.innerHTML='<div class="card empty">Chưa có bài viết.</div>';return}
- box.innerHTML=posts.map(p=>`<article class="post"><h2>${esc(p.title)}</h2><div class="meta">Bởi ${esc(p.author)} · ${new Date(p.created_at).toLocaleString("vi-VN")} · 💬 ${p.comment_count}</div>${p.image?`<img src="${p.image}" alt="">`:""}<div class="content">${esc(p.content)}</div><div class="actions"><button onclick="viewPost(${p.id})">Xem & bình luận</button>${ME.role==="admin"?`<button class="secondary" onclick="editPost(${p.id})">Sửa</button><button class="danger" onclick="deletePost(${p.id})">Xóa</button>`:""}</div></article>`).join("")
+ box.innerHTML=posts.map(p=>`<article class="post"><h2>${esc(p.title)}</h2><div class="meta">Bởi ${esc(p.author)} · ${new Date(p.created_at).toLocaleString("vi-VN")} · 💬 ${p.comment_count}</div>${p.image?`<img src="${p.image}" alt="">`:""}<div class="content">${esc(p.content)}</div><div class="actions"><button onclick="viewPost(${p.id})">Xem & bình luận</button>${ME&&ME.role==="admin"?`<button class="secondary" onclick="editPost(${p.id})">Sửa</button><button class="danger" onclick="deletePost(${p.id})">Xóa</button>`:""}</div></article>`).join("")
 }
 async function viewPost(id){
  const p=await api("/api/posts/"+id);
- openModal(`<h2>${esc(p.title)}</h2><div class="meta">Bởi ${esc(p.author)}</div>${p.image?`<img src="${p.image}" style="width:100%;max-height:380px;object-fit:contain;border-radius:12px">`:""}<div class="content">${esc(p.content)}</div><div class="comments"><h3>Bình luận (${p.comments.length})</h3>${p.comments.map(c=>`<div class="comment"><strong>${esc(c.username)}</strong>${esc(c.content)} ${ME.role==="admin"?`<button class="danger" style="float:right;padding:5px 9px" onclick="deleteComment(${c.id},${id})">Xóa</button>`:""}</div>`).join("")||"<p class='muted'>Chưa có bình luận.</p>"}<form class="commentForm" onsubmit="addComment(event,${id})"><input name="content" placeholder="Viết bình luận..." required><button>Gửi</button></form></div>`)
+ openModal(`<h2>${esc(p.title)}</h2><div class="meta">Bởi ${esc(p.author)}</div>${p.image?`<img src="${p.image}" style="width:100%;max-height:380px;object-fit:contain;border-radius:12px">`:""}<div class="content">${esc(p.content)}</div><div class="comments"><h3>Bình luận (${p.comments.length})</h3>${p.comments.map(c=>`<div class="comment"><strong>${esc(c.username)}</strong>${esc(c.content)} ${ME&&ME.role==="admin"?`<button class="danger" style="float:right;padding:5px 9px" onclick="deleteComment(${c.id},${id})">Xóa</button>`:""}</div>`).join("")||"<p class='muted'>Chưa có bình luận.</p>"}${ME?`<form class="commentForm" onsubmit="addComment(event,${id})"><input name="content" placeholder="Viết bình luận..." required><button>Gửi</button></form>`:`<p class="muted">Đăng nhập để bình luận.</p>`}</div>`)
 }
 async function addComment(e,id){e.preventDefault();try{await api(`/api/posts/${id}/comments`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:e.target.content.value})});viewPost(id);loadPosts()}catch(x){toast(x.message)}}
 async function deleteComment(cid,pid){if(!confirm("Xóa bình luận này?"))return;try{await api("/api/comments/"+cid,{method:"DELETE"});viewPost(pid);loadPosts()}catch(x){toast(x.message)}}
