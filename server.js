@@ -8,6 +8,16 @@ const path = require("path");
 const fs = require("fs");
 
 const app = express();
+
+// Realtime SSE clients. Each open browser keeps one lightweight connection.
+const sseClients = new Set();
+function broadcast(event, data = {}) {
+  const payload = `event: ${event}\\ndata: ${JSON.stringify(data)}\\n\\n`;
+  for (const res of sseClients) {
+    try { res.write(payload); } catch (_) { sseClients.delete(res); }
+  }
+}
+
 const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
@@ -107,6 +117,19 @@ function requireAdmin(req,res,next) {
 }
 
 app.get("/health",(req,res)=>res.json({ok:true}));
+
+// Server-Sent Events: browsers receive changes immediately without refreshing.
+app.get("/api/events",(req,res)=>{
+  res.setHeader("Content-Type","text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control","no-cache, no-transform");
+  res.setHeader("Connection","keep-alive");
+  res.setHeader("X-Accel-Buffering","no");
+  res.flushHeaders();
+  res.write(`event: connected\\ndata: ${JSON.stringify({ok:true})}\\n\\n`);
+  sseClients.add(res);
+  const heartbeat = setInterval(()=>{ try { res.write(": heartbeat\\n\\n"); } catch (_) {} }, 25000);
+  req.on("close",()=>{ clearInterval(heartbeat); sseClients.delete(res); });
+});
 app.get("/api/me",(req,res)=>res.json({user:user(req)}));
 
 app.post("/api/register",(req,res)=>{
@@ -150,6 +173,7 @@ app.post("/api/posts",requireLogin,upload.single("image"),(req,res)=>{
   if(!title || !content) return res.status(400).json({error:"Cần nhập tiêu đề và nội dung."});
   const image=req.file ? "/uploads/"+req.file.filename : null;
   const r=db.prepare("INSERT INTO posts(title,content,image,author_id) VALUES(?,?,?,?)").run(title,content,image,req.currentUser.id);
+  broadcast("posts-changed", { action:"created", id:Number(r.lastInsertRowid) });
   res.json({ok:true,id:r.lastInsertRowid});
 });
 
@@ -157,12 +181,14 @@ app.put("/api/posts/:id",requireAdmin,(req,res)=>{
   const title=(req.body.title||"").trim(), content=(req.body.content||"").trim();
   if(!title || !content) return res.status(400).json({error:"Tiêu đề và nội dung không được trống."});
   const r=db.prepare("UPDATE posts SET title=?,content=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(title,content,req.params.id);
+  if (r.changes) broadcast("posts-changed", { action:"updated", id:Number(req.params.id) });
   res.json({ok:r.changes>0});
 });
 app.delete("/api/posts/:id",requireAdmin,(req,res)=>{
   const p=db.prepare("SELECT image FROM posts WHERE id=?").get(req.params.id);
   if(p?.image) { const f=path.join(UPLOAD_DIR, path.basename(p.image)); if(fs.existsSync(f)) fs.unlinkSync(f); }
   const r=db.prepare("DELETE FROM posts WHERE id=?").run(req.params.id);
+  if (r.changes) broadcast("posts-changed", { action:"deleted", id:Number(req.params.id) });
   res.json({ok:r.changes>0});
 });
 
@@ -172,10 +198,13 @@ app.post("/api/posts/:id/comments",requireLogin,(req,res)=>{
   const p=db.prepare("SELECT id FROM posts WHERE id=?").get(req.params.id);
   if(!p) return res.status(404).json({error:"Bài viết không tồn tại."});
   const r=db.prepare("INSERT INTO comments(post_id,user_id,content) VALUES(?,?,?)").run(req.params.id,req.currentUser.id,content);
+  broadcast("comments-changed", { action:"created", postId:Number(req.params.id), id:Number(r.lastInsertRowid) });
   res.json({ok:true,id:r.lastInsertRowid});
 });
 app.delete("/api/comments/:id",requireAdmin,(req,res)=>{
+  const c=db.prepare("SELECT post_id FROM comments WHERE id=?").get(req.params.id);
   const r=db.prepare("DELETE FROM comments WHERE id=?").run(req.params.id);
+  if (r.changes) broadcast("comments-changed", { action:"deleted", postId:c ? Number(c.post_id) : null, id:Number(req.params.id) });
   res.json({ok:r.changes>0});
 });
 
@@ -184,11 +213,13 @@ app.get("/api/admin/users",requireAdmin,(req,res)=>{
 });
 app.post("/api/admin/users/:id/approve",requireAdmin,(req,res)=>{
   const r=db.prepare("UPDATE users SET approved=1 WHERE id=?").run(req.params.id);
+  if (r.changes) broadcast("users-changed", { action:"approved", id:Number(req.params.id) });
   res.json({ok:r.changes>0});
 });
 app.post("/api/admin/users/:id/reject",requireAdmin,(req,res)=>{
   if(Number(req.params.id)===req.currentUser.id) return res.status(400).json({error:"Không thể tự xóa tài khoản quản trị."});
   const r=db.prepare("DELETE FROM users WHERE id=? AND role!='admin'").run(req.params.id);
+  if (r.changes) broadcast("users-changed", { action:"rejected", id:Number(req.params.id) });
   res.json({ok:r.changes>0});
 });
 

@@ -32,3 +32,7 @@ Không nên dùng mật khẩu mặc định khi chạy thật. Hãy đặt:
 
 ## QR
 Sau khi có URL `https://...onrender.com`, chỉ cần đưa URL đó vào trình tạo QR. Điện thoại quét QR sẽ mở trực tiếp website.
+
+
+## Realtime
+Website sử dụng **Server-Sent Events (SSE)**. Khi một người đăng bài, sửa/xóa bài hoặc thêm/xóa bình luận, các trình duyệt đang mở website sẽ tự cập nhật mà không cần F5.
