@@ -59,6 +59,8 @@ if (!exists) {
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+// Render sits behind a reverse proxy. Trust it so secure session cookies work over HTTPS.
+app.set("trust proxy", 1);
 app.use(session({
   secret: process.env.SESSION_SECRET || "change-this-secret-in-production",
   resave: false,
